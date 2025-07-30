@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Three.js Reflections</title>
+<style>
+  body { margin: 0; overflow: hidden; }
+  canvas { display: block; }
+  #info { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.5); padding: 5px; }
+</style>
+</head>
+<body>
+<div id="info">Click to place speaker. Use mouse to orbit. Cone angle: <input id="cone" type="range" min="5" max="90" value="30"> <span id="angle">30</span>&deg;</div>
+<script type="module">
+import * as THREE from './libs/three.module.js';
+import { OrbitControls } from './libs/OrbitControls.js';
+import { OBJLoader } from './libs/OBJLoader.js';
+import { STLLoader } from './libs/STLLoader.js';
+
+let scene = new THREE.Scene();
+scene.background = new THREE.Color(0x202020);
+let camera = new THREE.OrthographicCamera(-5,5,5,-5,0.1,100);
+camera.position.set(5,5,5);
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+let controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+let light = new THREE.DirectionalLight(0xffffff,1);
+light.position.set(10,10,10);
+scene.add(light);
+let ambient = new THREE.AmbientLight(0x404040);
+scene.add(ambient);
+
+let modelGroup = new THREE.Group();
+scene.add(modelGroup);
+
+function loadModel(url){
+  let loader = url.endsWith('.stl') ? new STLLoader() : new OBJLoader();
+  loader.load(url, obj => {
+    if(obj.isBufferGeometry){
+      let mat = new THREE.MeshStandardMaterial({color:0x999999});
+      let mesh = new THREE.Mesh(obj, mat);
+      modelGroup.add(mesh);
+    } else {
+      obj.traverse(c=>{ if(c.isMesh) c.material = new THREE.MeshStandardMaterial({color:0x999999}); });
+      modelGroup.add(obj);
+    }
+  });
+}
+
+loadModel('model.stl');
+
+let speaker;
+let coneAngle = parseFloat(document.getElementById('cone').value);
+document.getElementById('cone').addEventListener('input', e=>{
+  coneAngle = parseFloat(e.target.value);
+  document.getElementById('angle').textContent = coneAngle;
+});
+
+renderer.domElement.addEventListener('click', e=>{
+  let rect = renderer.domElement.getBoundingClientRect();
+  let mouse = new THREE.Vector2(
+    ((e.clientX - rect.left)/rect.width)*2-1,
+    -((e.clientY - rect.top)/rect.height)*2+1
+  );
+  let raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse,camera);
+  let intersects = raycaster.intersectObjects(modelGroup.children,true);
+  if(intersects.length){
+    if(speaker) scene.remove(speaker);
+    speaker = new THREE.Mesh(
+      new THREE.ConeGeometry(0.1,0.2,16,1,true,0,THREE.MathUtils.degToRad(coneAngle)),
+      new THREE.MeshBasicMaterial({color:0xff0000, wireframe:true})
+    );
+    speaker.position.copy(intersects[0].point);
+    speaker.rotation.x = -Math.PI/2;
+    scene.add(speaker);
+  }
+});
+
+function castRays(){
+  if(!speaker) return;
+  scene.traverse(o=>{ if(o.userData.reflection) {scene.remove(o);}});
+  let dir = new THREE.Vector3(0,1,0).applyQuaternion(speaker.quaternion);
+  let raycaster = new THREE.Raycaster(speaker.position, dir, 0, 100);
+  let intersects = raycaster.intersectObjects(modelGroup.children,true);
+  if(intersects.length){
+    let point = intersects[0].point;
+    let marker = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color:0x00ff00}));
+    marker.position.copy(point);
+    marker.userData.reflection = true;
+    scene.add(marker);
+  }
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  castRays();
+  renderer.render(scene,camera);
+}
+animate();
+window.addEventListener('resize',()=>{
+  camera.left = -5; camera.right = 5; camera.top = 5; camera.bottom = -5;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
